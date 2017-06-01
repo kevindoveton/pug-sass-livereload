@@ -1,106 +1,166 @@
 /*global require*/
 "use strict";
 
-var gulp = require('gulp'),
-  path = require('path'),
-  data = require('gulp-data'),
-  pug = require('gulp-pug'),
-  prefix = require('gulp-autoprefixer'),
-  sass = require('gulp-sass'),
-  uglify = require('gulp-uglify'),
-  pump = require('pump'),
-  concat = require('gulp-concat'),
-  browserSync = require('browser-sync');
+const gulp = require('gulp');
+const path = require('path');
+const pug = require('gulp-pug');
+const prefix = require('gulp-autoprefixer');
+const sass = require('gulp-sass');
+const uglify = require('gulp-uglify');
+const pump = require('pump');
+const concat = require('gulp-concat');
+const mainBowerFiles = require('main-bower-files');
+const sourcemaps = require('gulp-sourcemaps');
 
 /*
  * Directories here
  */
-var paths = {
-  public: './public/',
-  sass: './src/sass/',
-  js: './public/js/',
-  css: './public/css/',
-  data: './src/_data/'
+var paths = new function() {
+	this.base_dist = './build/';
+	this.css = this.base_dist + 'css/';
+	this.js_dist = this.base_dist + 'js/';
+	this.html_dist = this.base_dist;
+
+	this.base_build = './src/views/';
+	this.sass = this.base_build + 'sass/';
+	this.js_build = this.base_build + 'js/';
+	this.pug = this.base_build + 'pug/';
 };
 
-/**
- * Compile .pug files and pass in data from json file
- * matching file name. index.pug - index.pug.json
- */
-gulp.task('pug', function () {
-  return gulp.src('./src/*.pug')
-    // .pipe(data(function (file) {
-    //   return require(paths.data + path.basename(file.path) + '.json');
-    // }))
-    .pipe(pug())
-    .pipe(gulp.dest(paths.public));
-});
+gulp.task('js', ['userjs', 'vendorjs']);
 
-gulp.task('js', function() {
+gulp.task('userjs', function(cb) {
+	// User
 	pump([
-		gulp.src('./src/js/*.js'),
+		gulp.src(paths.js_build + '**/*.js'),
+		sourcemaps.init(),
+		uglify({
+			preserveComments: 'license',
+			mangle: false,
+			compress: false,
+		}),
 		concat('dist.js'),
-		uglify(),
-		gulp.dest(paths.js)
-	]);
+		sourcemaps.write('maps'),
+		gulp.dest(paths.js_dist)
+	], function(e) {
+		if (e !== undefined) {
+			console.log(e);
+		}
+		cb(null);
+	});
+});
+
+gulp.task('vendorjs', function(cb) {
+	console.log(mainBowerFiles({
+		paths: {
+			bowerDirectory: './bower_components',
+			// bowerrc: 'path/for/.bowerrc',
+			bowerJson: './bower.json'
+		}
+	}));
+	pump([
+		gulp.src(mainBowerFiles()),
+		sourcemaps.init(),
+		uglify({
+			// output: {
+				// beautify: true,
+				// comments: true
+			// },
+			mangle: true,
+			compress: true,
+			preserveComments: 'license'
+		}),
+		concat('vendor.js'),
+		sourcemaps.write('maps'),
+		gulp.dest(paths.js_dist)
+	], function(e) {
+		if (e !== undefined) {
+			console.log(e);
+		}
+		cb(null);
+	});
 	return;
-});
 
-/**
- * Recompile .pug files and live reload the browser
- */
-gulp.task('rebuild', ['pug'], function () {
-  browserSync.reload();
-});
-
-/**
- * Wait for pug and sass tasks, then launch the browser-sync Server
- */
-gulp.task('browser-sync', ['sass', 'pug', 'js'], function () {
-  browserSync({
-    server: {
-      baseDir: paths.public
-    },
-    notify: true
-  });
 });
 
 /**
  * Compile .scss files into public css directory With autoprefixer no
  * need for vendor prefixes then live reload the browser.
  */
-gulp.task('sass', function () {
-  return gulp.src(paths.sass + '*.sass')
-    .pipe(sass({
-      includePaths: [paths.sass],
-      outputStyle: 'compressed'
-    }))
-    .on('error', sass.logError)
-    .pipe(prefix(['last 15 versions', '> 1%', 'ie 8', 'ie 7'], {
-      cascade: true
-    }))
-    .pipe(gulp.dest(paths.css))
-    .pipe(browserSync.reload({
-      stream: true
-    }));
+gulp.task('sass', function (cb) {
+	pump([
+		gulp.src(paths.sass + '*.sass'),
+		sass({
+			includePaths: [paths.sass],
+			outputStyle: 'compressed'
+		}),
+		prefix(
+			[
+				'last 15 versions',
+				'> 1%',
+				'ie 8',
+				'ie 7'
+			],
+			{
+				cascade: true
+			}
+		),
+		gulp.dest(paths.css),
+	], function(e) {
+		if (e !== undefined) {
+			console.log(e);
+		}
+		cb(null);
+	});
+	return;
+});
+
+gulp.task('pug', function (cb) {
+	pump([
+		gulp.src([paths.pug + '**/*.pug', '!' + paths.pug + 'includes/*.pug']),
+		pug(),
+		gulp.dest(paths.html_dist)
+	],function(e) {
+		if (e !== undefined) {
+			console.log(e);
+		}
+		cb(null);
+	});
+	return;
 });
 
 /**
- * Watch scss files for changes & recompile
+ * Watch sass files for changes & recompile
  * Watch .pug files run pug-rebuild then reload BrowserSync
  */
 gulp.task('watch', function () {
-  gulp.watch(paths.sass + '**/*.sass', ['sass']);
-  gulp.watch('./src/**/*.pug', ['rebuild']);
-  gulp.watch('./src/js/*.js', ['js', 'rebuild']);
+	gulp.watch(paths.sass + '**/*.sass', ['sass']);
+	gulp.watch(paths.js_build + '**/*.js', ['userjs']);
+	gulp.watch(paths.pug + '**/*.pug', ['pug']);
+	gulp.watch('./assets/**/*', ['assets']);
 });
 
-// Build task compile sass and pug.
-gulp.task('build', ['sass', 'pug', 'js']);
+// Build task compile sass
+gulp.task('build', ['sass', 'js', 'pug', 'assets']);
+gulp.task('build-nobower', ['sass', 'userjs', 'pug', 'assets']);
 
 /**
  * Default task, running just `gulp` will compile the sass,
  * compile the jekyll site, launch BrowserSync then watch
  * files for changes
  */
-gulp.task('default', ['browser-sync', 'watch']);
+gulp.task('default', ['build', 'watch']);
+
+gulp.task('assets', function(cb) {
+	pump([
+		gulp.src([
+			'./assets/**/*.ttf','./assets/**/*.woff?(2)', // fonts
+			'./assets/**/*.jpg', './assets/**/*.svg', './assets/**/*.png', './assets/**/*.bmp', './assets/**/*.ico']), // images
+		gulp.dest('./static/')
+	], function(e) {
+		if (e !== undefined) {
+			console.log(e);
+		}
+		cb(null);
+	});
+})

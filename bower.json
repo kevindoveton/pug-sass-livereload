@@ -1,0 +1,12 @@
+{
+  "name": "starter",
+  "description": "",
+  "authors": [
+    "Kevin Doveton"
+  ],
+  "private": true,
+  "dependencies": {
+  },
+  "resolutions": {
+  }
+}
